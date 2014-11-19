@@ -53,7 +53,7 @@ final class Mandelbrot {
     }
 
     // Use vector processing to compute Mandelbrot Set
-    func computeLine(complex: DoubleSplitComplexVector, iterations: Int) -> DoubleSplitComplexVector {
+    func computeLine(complex: DoubleSplitComplexVector, iterations: Int) -> [Double] {
         let len = vDSP_Length(complex.real.count)
         var c_vector = complex
         var c = DSPDoubleSplitComplex(realp: &c_vector.real, imagp: &c_vector.imag)
@@ -61,23 +61,38 @@ final class Mandelbrot {
         var z = DSPDoubleSplitComplex(realp: &z_vector.real, imagp: &z_vector.imag)
         var r_vector = complex
         var r = DSPDoubleSplitComplex(realp: &r_vector.real, imagp: &r_vector.imag)
+        var d = [Double](count: complex.real.count, repeatedValue: 0.0)
+        var result = d
 
-        for i in 0 ..< iterations {
-            vDSP_zvmulD (&z, 1, &z, 1, &r, 1,len, 1)
-            vDSP_zvaddD(&r, 1, &c, 1, &z, 1, len)
+        // this is a work around for a bug in the compiler not finding methods on d[j]
+        func doAssign(d: Double, r: Double) -> Bool {
+            if r == 0.0 && d.isFinite && d > 2.0 {
+                return true
+            }
+            return false
         }
 
-        var result = DoubleSplitComplexVector()
-        result.real = z_vector.real
-        result.imag = z_vector.imag
-        
-        return result
-    }
+        for i in 1 ... iterations {
+            // the heavy bit
+            for j in 0 ..< Int(len) {
+                if doAssign(d[j], result[j]) {
+                    result[j] = Double(i)
+                }
+            }
 
-    func distanceFromOrigin(complex: DoubleSplitComplexVector) -> [Double] {
-        var d = [Double](count: complex.real.count, repeatedValue: 0.0)
-        vDSP_vdistD(complex.real, 1, complex.imag, 1, &d, 1, vDSP_Length(complex.real.count))
-        return d
+            vDSP_zvmulD (&z, 1, &z, 1, &r, 1,len, 1)
+            vDSP_zvaddD(&r, 1, &c, 1, &z, 1, len)
+            vDSP_vdistD(z.realp, 1, z.imagp, 1, &d, 1, len)
+        }
+
+        // this allows us to color the inside of the set also
+        for j in 0 ..< Int(len) {
+            if result[j] == 0.0 && d[j] < 2.0 {
+                result[j] = d[j]
+            }
+        }
+
+        return result
     }
 
     func computeSet() {
@@ -87,10 +102,12 @@ final class Mandelbrot {
                 var imagVec = [Double](count: self.pixelWidth, repeatedValue: self.iArray[line])
                 splitComplexVector.real = self.rArray
                 splitComplexVector.imag = imagVec
-                self.scanLines[line] = self.distanceFromOrigin(self.computeLine(splitComplexVector, iterations: self.iterations))
+                self.scanLines[line] = self.computeLine(splitComplexVector, iterations: self.iterations)
+                println("Line: \(line)")
             }
         }
         threads.waitAll()
+        println("Done!")
     }
     
 }
